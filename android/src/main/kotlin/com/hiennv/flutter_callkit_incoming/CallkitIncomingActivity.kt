@@ -7,6 +7,8 @@
 
 package com.hiennv.flutter_callkit_incoming
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.KeyguardManager
@@ -29,6 +31,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.Window
 import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.AnimationUtils
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -103,6 +106,7 @@ class CallkitIncomingActivity : Activity() {
     // [breizh-voip] Swipe pour décrocher/refuser
     private lateinit var ivSwipeHandle: ImageView
     private lateinit var swipeTrack: View
+    private var hintAnimator: ObjectAnimator? = null
 
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -366,6 +370,7 @@ class CallkitIncomingActivity : Activity() {
         ivSwipeHandle.setOnTouchListener { v, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    stopSwipeHint()
                     v.animate().cancel()
                     startRawX = event.rawX
                     true
@@ -381,13 +386,36 @@ class CallkitIncomingActivity : Activity() {
                     when {
                         max > 0f && tx >= max * 0.7f -> onAcceptClick()
                         max > 0f && tx <= -max * 0.7f -> onDeclineClick()
-                        else -> v.animate().translationX(0f).setDuration(180).start()
+                        else -> v.animate().translationX(0f).setDuration(180)
+                            .withEndAction { startSwipeHint() }.start()
                     }
                     true
                 }
                 else -> false
             }
         }
+        startSwipeHint()
+    }
+
+    // [breizh-voip] Invite visuelle : la poignée pousse régulièrement vers le bouton
+    // décrocher (à droite), comme l'écran d'appel entrant Android.
+    private fun startSwipeHint() {
+        stopSwipeHint()
+        val nudge = resources.displayMetrics.density * 26f
+        hintAnimator = ObjectAnimator.ofFloat(ivSwipeHandle, "translationX", 0f, nudge).apply {
+            duration = 650
+            startDelay = 350
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            start()
+        }
+    }
+
+    private fun stopSwipeHint() {
+        hintAnimator?.cancel()
+        hintAnimator = null
+        if (::ivSwipeHandle.isInitialized) ivSwipeHandle.translationX = 0f
     }
 
     // Distance max de glissement = du centre jusqu'à la cible (accept/decline).
