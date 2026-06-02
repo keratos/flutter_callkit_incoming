@@ -41,7 +41,9 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
     inner class ScreenOffCallkitIncomingBroadcastReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (isPlaying && !keepRingingForFullScreenIntent) {
+            // [breizh-voip] DÉSACTIVÉ (false) : ne pas couper la sonnerie sur ACTION_SCREEN_OFF
+            // (écran verrouillé). La sonnerie s'arrête via les chemins normaux (accept/decline/end).
+            if (isPlaying && false) {
                 stop()
             }
         }

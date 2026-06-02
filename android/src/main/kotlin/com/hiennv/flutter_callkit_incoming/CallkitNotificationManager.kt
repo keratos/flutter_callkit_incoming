@@ -1017,7 +1017,10 @@ class CallkitNotificationManager(
     // Start Signify modification
     inner class VolumeKeyBroadcastReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "android.media.VOLUME_CHANGED_ACTION") {
+            // [breizh-voip] DÉSACTIVÉ (false &&) : VOLUME_CHANGED_ACTION est émis tout seul
+            // au démarrage de la sonnerie (la route audio Telecom change le volume RING),
+            // ce qui coupait la sonnerie ~0,5 s après le début sur écran verrouillé.
+            if (false && intent?.action == "android.media.VOLUME_CHANGED_ACTION") {
                 if (callkitSoundPlayerManager?.isPlaying == true) {
                     callkitSoundPlayerManager.stop()
                 }
