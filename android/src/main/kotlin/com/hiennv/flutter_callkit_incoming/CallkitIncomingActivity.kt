@@ -7,6 +7,7 @@
 
 package com.hiennv.flutter_callkit_incoming
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.KeyguardManager
 import android.app.NotificationManager
@@ -24,6 +25,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.Window
 import android.view.WindowManager
@@ -97,6 +99,10 @@ class CallkitIncomingActivity : Activity() {
 
     private lateinit var ivDeclineCall: ImageView
     private lateinit var tvDecline: TextView
+
+    // [breizh-voip] Swipe pour décrocher/refuser
+    private lateinit var ivSwipeHandle: ImageView
+    private lateinit var swipeTrack: View
 
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -331,20 +337,64 @@ class CallkitIncomingActivity : Activity() {
         tvAccept = findViewById(R.id.tvAccept)
         ivDeclineCall = findViewById(R.id.ivDeclineCall)
         tvDecline = findViewById(R.id.tvDecline)
+        ivSwipeHandle = findViewById(R.id.ivSwipeHandle)
+        swipeTrack = findViewById(R.id.swipeTrack)
         animateAcceptCall()
 
+        // Tap sur une cible = fallback (décrocher / refuser).
         ivAcceptCall.setOnClickListener {
             onAcceptClick()
         }
         ivDeclineCall.setOnClickListener {
             onDeclineClick()
         }
+        // [breizh-voip] Décrochage par swipe de la poignée centrale.
+        setupSwipeToAnswer()
     }
 
     private fun animateAcceptCall() {
         val shakeAnimation =
             AnimationUtils.loadAnimation(this@CallkitIncomingActivity, R.anim.shake_anim)
         ivAcceptCall.animation = shakeAnimation
+    }
+
+    // [breizh-voip] Glisser la poignée vers la droite = décrocher, vers la gauche = refuser.
+    // Appelle exactement la même logique que les boutons (onAcceptClick / onDeclineClick).
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupSwipeToAnswer() {
+        var startRawX = 0f
+        ivSwipeHandle.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.animate().cancel()
+                    startRawX = event.rawX
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val max = maxSwipe()
+                    v.translationX = (event.rawX - startRawX).coerceIn(-max, max)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val max = maxSwipe()
+                    val tx = v.translationX
+                    when {
+                        max > 0f && tx >= max * 0.7f -> onAcceptClick()
+                        max > 0f && tx <= -max * 0.7f -> onDeclineClick()
+                        else -> v.animate().translationX(0f).setDuration(180).start()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    // Distance max de glissement = du centre jusqu'à la cible (accept/decline).
+    private fun maxSwipe(): Float {
+        val w = swipeTrack.width
+        return if (w > 0) (w - ivSwipeHandle.width) / 2f
+        else resources.displayMetrics.widthPixels * 0.32f
     }
 
 
