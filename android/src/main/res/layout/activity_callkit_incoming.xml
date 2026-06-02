@@ -131,7 +131,8 @@
             <RelativeLayout
                 android:id="@+id/swipeTrack"
                 android:layout_width="match_parent"
-                android:layout_height="@dimen/size_button">
+                android:layout_height="@dimen/size_button"
+                android:background="@drawable/bg_swipe_track">
 
                 <ImageView
                     android:id="@+id/ivDeclineCall"
@@ -155,6 +156,31 @@
                     android:src="@drawable/ic_accept"
                     tools:ignore="ContentDescription" />
 
+                <!-- Chevrons indiquant le sens du glissement -->
+                <TextView
+                    android:id="@+id/tvChevronLeft"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:layout_toEndOf="@id/ivDeclineCall"
+                    android:layout_toStartOf="@id/ivSwipeHandle"
+                    android:gravity="center"
+                    android:text="‹ ‹ ‹"
+                    android:textColor="#80EF5350"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvChevronRight"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:layout_toEndOf="@id/ivSwipeHandle"
+                    android:layout_toStartOf="@id/ivAcceptCall"
+                    android:gravity="center"
+                    android:text="› › ›"
+                    android:textColor="#8066BB6A"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
                 <ImageView
                     android:id="@+id/ivSwipeHandle"
                     android:layout_width="@dimen/size_button"
@@ -163,7 +189,8 @@
                     android:background="@drawable/bg_swipe_handle"
                     android:padding="@dimen/base_margin_x1_5"
                     android:src="@drawable/ic_accept"
-                    tools:ignore="ContentDescription" />
+                    android:tint="#1B1B2F"
+                    tools:ignore="ContentDescription,UseAppTint" />
 
                 <!-- Conservés (référencés par le code) mais masqués : l'indice texte les remplace. -->
                 <TextView
