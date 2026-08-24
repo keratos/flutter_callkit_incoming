@@ -115,15 +115,19 @@ class CallkitConnection(
      */
     private val dispatched = Collections.synchronizedSet(mutableSetOf<String>())
 
-    /** Sends one of the plugin's own broadcasts, exactly as a notification button would. */
-    private fun dispatchToPlugin(intent: Intent, what: String) {
+    /**
+     * Sends one of the plugin's own broadcasts, exactly as a notification button
+     * would. Returns true when the broadcast actually went out.
+     */
+    private fun dispatchToPlugin(intent: Intent, what: String): Boolean {
         if (!dispatched.add(what)) {
             Log.d(TAG, "$what already dispatched id=$callId — ignoring duplicate")
-            return
+            return false
         }
-        try {
+        return try {
             appContext.sendBroadcast(intent)
             Log.d(TAG, "$what dispatched to plugin id=$callId")
+            true
         } catch (e: Exception) {
             Log.w(TAG, "$what dispatch failed id=$callId: ${e.message}")
             // The broadcast is the only thing that tells the app about this
@@ -131,6 +135,64 @@ class CallkitConnection(
             // that claims otherwise — fall back to the local-only behaviour.
             dispatched.remove(what)
             fallback(what)
+            false
+        }
+    }
+
+    /**
+     * Replays the parts of accepting that only [CallkitIncomingActivity.onAcceptClick]
+     * performs, for answers that did not come from that screen.
+     *
+     * The full-screen incoming call UI has exactly one way of going away: it
+     * calls `finish()` on itself when the user taps one of its own buttons. When
+     * the answer arrives from Telecom — a watch, Android Auto, a car kit — nobody
+     * taps it, so it stays up over the lock screen and keeps ringing while the
+     * call is already connected.
+     *
+     * There is a second, indirect route (the ACCEPT branch starts
+     * CallkitNotificationService, whose onStartCommand clears the incoming
+     * notification, which broadcasts the dismiss) but it cannot be relied on: it
+     * runs through `FlutterCallkitIncomingPlugin.getInstance()`, which is null
+     * while the app is asleep, and every call on it is null-safe — so it fails
+     * silently exactly in the case that matters. Hence doing it here, directly.
+     */
+    private fun tearDownIncomingUiAndOpenApp() {
+        // Ringtone + incoming notification. Both hang off the plugin instance,
+        // which may be null while the app is asleep — the dismiss broadcast
+        // below does not depend on it and is sent regardless.
+        try {
+            val plugin = FlutterCallkitIncomingPlugin.getInstance()
+            plugin?.getCallkitSoundPlayerManager()?.stop()
+            plugin?.getCallkitNotificationManager()?.clearIncomingNotification(bundle, true)
+        } catch (e: Exception) {
+            Log.w(TAG, "clearing incoming notification failed id=$callId: ${e.message}")
+        }
+        // Dismiss the full-screen Activity. Harmless if the line above already
+        // sent this same broadcast — the Activity ignores it once finishing.
+        try {
+            appContext.sendBroadcast(CallkitIncomingActivity.getIntentEnded(appContext, true))
+        } catch (e: Exception) {
+            Log.w(TAG, "dismissing incoming activity failed id=$callId: ${e.message}")
+        }
+        // Bring the app up on the connected call, like a normal answer does.
+        // Launched from a self-managed Connection that Telecom still considers
+        // RINGING, which is what earns the PHONE_CALL exemption to the
+        // background-activity-launch restrictions of Android 12+.
+        try {
+            val intent = AppUtils.getAppIntent(
+                appContext,
+                CallkitConstants.ACTION_CALL_ACCEPT,
+                bundle,
+            )
+            if (intent == null) {
+                Log.w(TAG, "no launch intent for package — app not opened id=$callId")
+            } else {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                appContext.startActivity(intent)
+                Log.d(TAG, "app opened on active call id=$callId")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "opening app failed id=$callId: ${e.message}")
         }
     }
 
@@ -145,10 +207,13 @@ class CallkitConnection(
     override fun onAnswer() {
         super.onAnswer()
         Log.d(TAG, "onAnswer id=$callId")
-        dispatchToPlugin(
+        val sent = dispatchToPlugin(
             CallkitIncomingBroadcastReceiver.getIntentAccept(appContext, bundle),
             "onAnswer",
         )
+        // Only for accept: the DECLINE and ENDED branches of the receiver already
+        // call clearIncomingNotification themselves, ACCEPT is the one that does not.
+        if (sent) tearDownIncomingUiAndOpenApp()
     }
 
     override fun onReject() {

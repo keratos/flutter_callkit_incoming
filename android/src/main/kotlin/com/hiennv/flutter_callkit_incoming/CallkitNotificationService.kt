@@ -57,7 +57,10 @@ class CallkitNotificationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action === CallkitConstants.ACTION_CALL_START) {
+        // == and not ===: comparing String references breaks as soon as the
+        // Intent is parcelled (service restart, START_STICKY redelivery),
+        // silently skipping this branch.
+        if (intent?.action == CallkitConstants.ACTION_CALL_START) {
             intent.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
                 ?.let {
                     if(it.getBoolean(CallkitConstants.EXTRA_CALLKIT_CALLING_SHOW, true)) {
@@ -68,7 +71,10 @@ class CallkitNotificationService : Service() {
                     }
                 }
         }
-        if (intent?.action === CallkitConstants.ACTION_CALL_ACCEPT) {
+        // == and not ===: comparing String references breaks as soon as the
+        // Intent is parcelled (service restart, START_STICKY redelivery),
+        // silently skipping this branch.
+        if (intent?.action == CallkitConstants.ACTION_CALL_ACCEPT) {
             intent.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
                 ?.let {
                     getCallkitNotificationManager()?.clearIncomingNotification(it, true)
