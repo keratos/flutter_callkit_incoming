@@ -56,6 +56,15 @@ class CallkitConnectionService : ConnectionService() {
             return failed("Empty call id")
         }
 
+        // The call may already be over: declined, cancelled or superseded while
+        // addNewIncomingCall was in flight. Creating a Connection for it would leave
+        // a phantom ringing call owning the Telecom audio focus and every OS-level
+        // call UI (watch, Android Auto, car kit) — see CallkitConnection.deadCalls.
+        if (CallkitConnection.consumeDead(callId)) {
+            Log.w(TAG, "onCreateIncomingConnection id=$callId already ended — refusing")
+            return failed("Call already ended")
+        }
+
         Log.d(TAG, "onCreateIncomingConnection id=$callId caller=${data.nameCaller}")
 
         val connection = CallkitConnection(callId, callBundle, applicationContext).apply {

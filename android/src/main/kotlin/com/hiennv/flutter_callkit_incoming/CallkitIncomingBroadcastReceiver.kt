@@ -158,7 +158,18 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             null
         } ?: return
-        val conn = CallkitConnection.find(parsed.id) ?: return
+        val conn = CallkitConnection.find(parsed.id)
+        if (conn == null) {
+            // addNewIncomingCall is still in flight: the Connection does not exist
+            // yet, so there is nothing to disconnect and this call would otherwise
+            // be born RINGING with nobody left to kill it. Remember it as dead so
+            // onCreateIncomingConnection refuses it (see CallkitConnection.deadCalls).
+            if (action != CallkitConstants.ACTION_CALL_ACCEPT) {
+                CallkitConnection.markDead(parsed.id)
+                Log.d(TAG, "no connection yet for ${parsed.id} — marked dead ($action)")
+            }
+            return
+        }
         when (action) {
             CallkitConstants.ACTION_CALL_ACCEPT -> conn.markAccepted()
             CallkitConstants.ACTION_CALL_DECLINE -> conn.markDeclined(context)

@@ -62,9 +62,47 @@ class CallkitConnection(
         /** For testing / cleanup — release all refs (Connection objects already destroyed by OS). */
         fun clearAll() {
             activeConnections.clear()
+            deadCalls.clear()
         }
 
         fun activeCount(): Int = activeConnections.size
+
+        /**
+         * Calls that were declined/ended before Telecom created their Connection.
+         *
+         * `addNewIncomingCall` is asynchronous. In the gap between the request and
+         * [CallkitConnectionService.onCreateIncomingConnection] the call can already
+         * be over — a cancel push, an answer on another device, a second CallKit
+         * superseding the first. The decline then runs against a Connection that does
+         * not exist yet, [find] returns null, and it disconnects nothing. The
+         * Connection is born RINGING moments later with nobody left to kill it.
+         *
+         * Such a phantom outlives the real call, keeps the Telecom audio focus, and
+         * hijacks every OS-level call UI — watch, Android Auto, car kit. Their buttons
+         * then drive a call that no longer exists, so none of them appear to work.
+         * Observed on a Xiaomi (Android 16): a phantom held the UI for 85 s while the
+         * real call had been gone for over a minute.
+         */
+        private val deadCalls = Collections.synchronizedSet(LinkedHashSet<String>())
+
+        /** Only the narrow race window matters; the cap just stops unbounded growth. */
+        private const val MAX_DEAD_CALLS = 64
+
+        /** Records that [callId] ended before its Connection existed. */
+        fun markDead(callId: String) {
+            if (callId.isEmpty()) return
+            synchronized(deadCalls) {
+                deadCalls.add(callId)
+                while (deadCalls.size > MAX_DEAD_CALLS) {
+                    val oldest = deadCalls.iterator().let { if (it.hasNext()) it.next() else null }
+                        ?: break
+                    deadCalls.remove(oldest)
+                }
+            }
+        }
+
+        /** True if [callId] died during the race window. Consumes the marker. */
+        fun consumeDead(callId: String): Boolean = deadCalls.remove(callId)
     }
 
     init {
