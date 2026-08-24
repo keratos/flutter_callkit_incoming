@@ -330,6 +330,30 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     result.success(true)
                 }
 
+                // Accept a call programmatically, exactly as tapping "Accept" on the
+                // plugin's own notification does. Callable from a background Dart
+                // isolate — needed by companion surfaces (a paired watch's own
+                // notification actions) whose button press is delivered to the
+                // background isolate and can therefore not reach the app's
+                // foreground call handling on its own.
+                "acceptCall" -> {
+                    val calls = getDataActiveCalls(context)
+                    val data = Data(call.arguments() ?: HashMap())
+                    val currentCall = calls.firstOrNull { it.id == data.id }
+                    if (currentCall != null && context != null) {
+                        context?.sendBroadcast(
+                            CallkitIncomingBroadcastReceiver.getIntentAccept(
+                                requireNotNull(context),
+                                currentCall.toBundle()
+                            )
+                        )
+                        result.success(true)
+                    } else {
+                        // No such active call (already ended, or the id is stale).
+                        result.success(false)
+                    }
+                }
+
                 "endCall" -> {
                     val calls = getDataActiveCalls(context)
                     val data = Data(call.arguments() ?: HashMap())

@@ -163,6 +163,32 @@ class FlutterCallkitIncoming {
     await _channel.invokeMethod("holdCall", {'id': id, 'isOnHold': isOnHold});
   }
 
+  /// Accept an incoming call programmatically — same effect as the user
+  /// tapping "Accept" on the plugin's own notification.
+  ///
+  /// Android only (no-op returning `false` elsewhere). Safe to call from a
+  /// background isolate: it goes through the plugin's broadcast pipeline, so it
+  /// notifies Dart, persists `isAccepted` for cold-start recovery, drives the
+  /// self-managed Telecom connection, and brings the app up.
+  ///
+  /// Use it for companion surfaces that own their own notification actions (a
+  /// paired watch, for instance): those button presses land in the background
+  /// isolate, which has no access to the app's call handling, so without this
+  /// the accept is silently dropped and the call keeps ringing.
+  ///
+  /// Returns `false` when [id] matches no active call (already ended, or stale).
+  static Future<bool> acceptCall(String id) async {
+    try {
+      final result = await _channel.invokeMethod("acceptCall", {'id': id});
+      return result == true;
+    } on MissingPluginException {
+      // Platform without this pipeline (iOS drives accept through CallKit
+      // itself). Reported as "not accepted" rather than thrown, so callers can
+      // treat it as a plain capability check.
+      return false;
+    }
+  }
+
   /// End an Incoming/Outgoing call.
   /// On iOS, using Callkit(update a history into the Phone app).
   /// On Android, Nothing(only callback event listener).

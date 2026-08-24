@@ -10,6 +10,7 @@ import android.telecom.Connection
 import android.telecom.DisconnectCause
 import android.util.Log
 import androidx.annotation.RequiresApi
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -37,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap
 class CallkitConnection(
     val callId: String,
     val bundle: Bundle,
+    private val appContext: Context,
 ) : Connection() {
 
     companion object {
@@ -76,28 +78,95 @@ class CallkitConnection(
     // -------------------------------------------------------------------------
     // Telecom → app lifecycle callbacks
     //
-    // These fire when the user interacts with the OS-level call UI (system
-    // dialer, car Bluetooth, watch, etc.). In our app-driven model we still
-    // handle the primary Accept/Decline via our own notification buttons, but
-    // the OS can also trigger these — we must honor both paths.
+    // These fire when the user interacts with an OS-level call UI: Android Auto's
+    // generic incoming-call screen, a Bluetooth car kit, the steering-wheel
+    // answer button, a paired watch's system call UI, the system dialer.
+    //
+    // These paths MUST end up doing the same work as our own notification
+    // buttons. Answering an OS-level call is not just a Telecom state change —
+    // the app has to be told, so it can answer the underlying VoIP call.
+    //
+    // Previously these overrides only moved the Telecom state (setActive /
+    // setDisconnected) and never notified the app. Symptom: the call rang in the
+    // car, "Answer" flipped the car UI to "in call", and nothing else happened —
+    // the VoIP INVITE was never answered. Same hole for reject/disconnect, which
+    // left the VoIP call alive after hanging up from the car.
+    //
+    // Fix: re-dispatch to the very same broadcast the notification buttons send,
+    // so there is ONE accept/decline/end pipeline instead of three, of which two
+    // were dead ends. CallkitIncomingBroadcastReceiver then does the full job:
+    // drive this Connection (markAccepted/markDeclined/markEnded), notify Dart
+    // (sendEventFlutter), persist isAccepted for cold-start recovery (addCall),
+    // and bring the app up (acceptCallHandleCallback).
     // -------------------------------------------------------------------------
+
+    /**
+     * OS actions already re-dispatched to the plugin, to swallow duplicates.
+     *
+     * The receiver's branches call back into [markAccepted]/[markDeclined]/
+     * [markEnded]; those only move Telecom state and never re-trigger these
+     * overrides, so there is no loop — but a double tap (or an OS retry) would
+     * emit the event to Dart twice, which app-side accept handlers typically
+     * read as "accept, then immediately end".
+     *
+     * Keyed per action rather than a single flag: answering from the car and
+     * *then* hanging up from the car is a normal sequence, and the second
+     * action must get through.
+     */
+    private val dispatched = Collections.synchronizedSet(mutableSetOf<String>())
+
+    /** Sends one of the plugin's own broadcasts, exactly as a notification button would. */
+    private fun dispatchToPlugin(intent: Intent, what: String) {
+        if (!dispatched.add(what)) {
+            Log.d(TAG, "$what already dispatched id=$callId — ignoring duplicate")
+            return
+        }
+        try {
+            appContext.sendBroadcast(intent)
+            Log.d(TAG, "$what dispatched to plugin id=$callId")
+        } catch (e: Exception) {
+            Log.w(TAG, "$what dispatch failed id=$callId: ${e.message}")
+            // The broadcast is the only thing that tells the app about this
+            // action. If it could not be sent, do not leave Telecom in a state
+            // that claims otherwise — fall back to the local-only behaviour.
+            dispatched.remove(what)
+            fallback(what)
+        }
+    }
+
+    private fun fallback(what: String) {
+        when (what) {
+            "onAnswer" -> setActive()
+            "onReject" -> finishWithCause(DisconnectCause.REJECTED)
+            else -> finishWithCause(DisconnectCause.LOCAL)
+        }
+    }
 
     override fun onAnswer() {
         super.onAnswer()
         Log.d(TAG, "onAnswer id=$callId")
-        setActive()
+        dispatchToPlugin(
+            CallkitIncomingBroadcastReceiver.getIntentAccept(appContext, bundle),
+            "onAnswer",
+        )
     }
 
     override fun onReject() {
         super.onReject()
         Log.d(TAG, "onReject id=$callId")
-        finishWithCause(DisconnectCause.REJECTED)
+        dispatchToPlugin(
+            CallkitIncomingBroadcastReceiver.getIntentDecline(appContext, bundle),
+            "onReject",
+        )
     }
 
     override fun onDisconnect() {
         super.onDisconnect()
         Log.d(TAG, "onDisconnect id=$callId")
-        finishWithCause(DisconnectCause.LOCAL)
+        dispatchToPlugin(
+            CallkitIncomingBroadcastReceiver.getIntentEnded(appContext, bundle),
+            "onDisconnect",
+        )
     }
 
     override fun onAbort() {
@@ -123,6 +192,9 @@ class CallkitConnection(
     /** Mark the call as answered — user accepted via app notification. */
     fun markAccepted() {
         Log.d(TAG, "markAccepted id=$callId")
+        // Already accepted app-side: an OS-level answer arriving afterwards must
+        // not re-enter the broadcast pipeline (see [dispatched]).
+        dispatched.add("onAnswer")
         setActive()
     }
 
@@ -144,6 +216,7 @@ class CallkitConnection(
      */
     fun markDeclined(context: Context) {
         Log.d(TAG, "markDeclined id=$callId")
+        dispatched.add("onReject")
         triggerDeclineRecovery(context)
         // [H' fix 2026-05-05 v2] Delay finishWithCause so the self-managed
         // call stays RINGING long enough for:
@@ -202,6 +275,7 @@ class CallkitConnection(
     /** Mark the call as terminated — call ended (either side hung up). */
     fun markEnded() {
         Log.d(TAG, "markEnded id=$callId")
+        dispatched.add("onDisconnect")
         finishWithCause(DisconnectCause.LOCAL)
     }
 
