@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.telecom.CallAudioState
 import android.telecom.Connection
 import android.telecom.DisconnectCause
 import android.util.Log
@@ -278,14 +279,97 @@ class CallkitConnection(
         finishWithCause(DisconnectCause.UNKNOWN)
     }
 
+    // -------------------------------------------------------------------------
+    // Contrôles venus d'une surface distante (Android Auto, kit Bluetooth,
+    // montre, bouton au volant).
+    //
+    // Ces trois callbacks manquaient. Leurs capacités étaient pourtant déjà
+    // déclarées (CAPABILITY_MUTE, CAPABILITY_SUPPORT_HOLD) : la voiture
+    // affichait donc les boutons, les allumait au clic, et rien n'atteignait
+    // jamais la pile SIP. Le correspondant continuait d'entendre pendant que
+    // l'écran voiture affichait « muet » ou « en attente ».
+    //
+    // Le plugin définit déjà les événements correspondants côté Dart — iOS les
+    // émet depuis CallKit. On émet ici exactement les mêmes, pour que le Dart
+    // de l'app n'ait qu'un seul contrat à connaître, quelle que soit la
+    // plateforme.
+    // -------------------------------------------------------------------------
+
     override fun onHold() {
         super.onHold()
+        Log.d(TAG, "onHold id=$callId")
+        emitToggleHold(true)
         setOnHold()
     }
 
     override fun onUnhold() {
         super.onUnhold()
+        Log.d(TAG, "onUnhold id=$callId")
+        emitToggleHold(false)
         setActive()
+    }
+
+    /**
+     * Mute demandé depuis une surface distante (API < 34).
+     *
+     * Déprécié en API 34 au profit de [onMuteStateChanged], mais toujours
+     * appelé sur les versions antérieures : les deux sont implémentés, et
+     * [emitToggleMute] déduplique.
+     */
+    @Suppress("DEPRECATION")
+    override fun onCallAudioStateChanged(state: CallAudioState?) {
+        super.onCallAudioStateChanged(state)
+        if (state == null) return
+        emitToggleMute(state.isMuted)
+    }
+
+    /** Mute demandé depuis une surface distante (API 34+). */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    override fun onMuteStateChanged(isMuted: Boolean) {
+        super.onMuteStateChanged(isMuted)
+        emitToggleMute(isMuted)
+    }
+
+    /** Touche du clavier DTMF pressée sur l'écran voiture. */
+    override fun onPlayDtmfTone(c: Char) {
+        super.onPlayDtmfTone(c)
+        Log.d(TAG, "onPlayDtmfTone id=$callId digit=$c")
+        FlutterCallkitIncomingPlugin.sendEvent(
+            CallkitConstants.ACTION_CALL_TOGGLE_DMTF,
+            mapOf(
+                "id" to callId,
+                "digits" to c.toString(),
+                // Le mapper Dart n'accepte que ces libellés (toDTMFActionType).
+                // Telecom ne transmet qu'une touche à la fois : singleTone.
+                "type" to "singleTone",
+            ),
+        )
+    }
+
+    /**
+     * Dernier état de mute annoncé à Dart.
+     *
+     * Sur API 34+, onCallAudioStateChanged (déprécié) et onMuteStateChanged
+     * peuvent tous deux se déclencher pour une même action utilisateur. Sans
+     * ce garde, l'app recevrait l'événement en double.
+     */
+    private var lastMutedSent: Boolean? = null
+
+    private fun emitToggleMute(isMuted: Boolean) {
+        if (lastMutedSent == isMuted) return
+        lastMutedSent = isMuted
+        Log.d(TAG, "toggleMute id=$callId isMuted=$isMuted")
+        FlutterCallkitIncomingPlugin.sendEvent(
+            CallkitConstants.ACTION_CALL_TOGGLE_MUTE,
+            mapOf("id" to callId, "isMuted" to isMuted),
+        )
+    }
+
+    private fun emitToggleHold(isOnHold: Boolean) {
+        FlutterCallkitIncomingPlugin.sendEvent(
+            CallkitConstants.ACTION_CALL_TOGGLE_HOLD,
+            mapOf("id" to callId, "isOnHold" to isOnHold),
+        )
     }
 
     // -------------------------------------------------------------------------
