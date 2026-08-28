@@ -103,15 +103,26 @@ class CallEventActionCallDecline extends CallEvent {
 }
 
 class CallEventActionCallEnded extends CallEvent {
-  const CallEventActionCallEnded(this.id);
+  const CallEventActionCallEnded(this.id, {this.fromTelecom = false});
 
   @override
   String get eventName => CallEventConstants.actionCallEnded;
 
   final String id;
 
+  /// Android uniquement. True quand le raccroché vient du framework Telecom
+  /// lui-même : bouton de l'écran voiture, du kit Bluetooth, de la montre, du
+  /// dialer système.
+  ///
+  /// Le même événement est émis quand l'APP referme sa propre représentation
+  /// Telecom via `endCall(id)`. Une app qui raccroche son appel sur cet
+  /// événement DOIT donc regarder ce drapeau, sinon l'écho de son propre
+  /// endCall lui fait raccrocher une autre ligne vivante.
+  final bool fromTelecom;
+
   @override
-  String toString() => 'CallEventActionCallEnded(id: $id)';
+  String toString() =>
+      'CallEventActionCallEnded(id: $id, fromTelecom: $fromTelecom)';
 }
 
 class CallEventActionCallTimeout extends CallEvent {

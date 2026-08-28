@@ -80,6 +80,23 @@ object CallkitConstants {
 
     const val EXTRA_CALLKIT_ACTION_FROM = "EXTRA_CALLKIT_ACTION_FROM"
 
+    /**
+     * Marque un ACTION_CALL_ENDED provoqué par le framework Telecom lui-même :
+     * bouton raccrocher de l'écran voiture, du kit Bluetooth, de la montre.
+     *
+     * Le même broadcast sert aux deux sens : l'app qui appelle `endCall(id)`
+     * pour refermer sa propre représentation Telecom émet exactement le même
+     * ACTION_CALL_ENDED que la voiture qui raccroche. Côté Dart les deux étaient
+     * donc indiscernables — et raccrocher le SIP sans les distinguer aurait fait
+     * tuer une ligne vivante par le simple écho de notre propre endCall.
+     *
+     * Les deux chemins sont pourtant déjà distincts ICI : seul l'OS invoque
+     * [CallkitConnection.onDisconnect], le chemin app-initié passant par
+     * `markEnded()`. Cet extra ne fait que transporter cette distinction
+     * jusqu'à Dart.
+     */
+    const val EXTRA_CALLKIT_FROM_TELECOM = "EXTRA_CALLKIT_FROM_TELECOM"
+
     const val EXTRA_CALLKIT_IS_SHOW_FULL_LOCKED_SCREEN = "EXTRA_CALLKIT_IS_SHOW_FULL_LOCKED_SCREEN"
     const val EXTRA_CALLKIT_IS_IMPORTANT = "EXTRA_CALLKIT_IS_IMPORTANT"
     const val EXTRA_CALLKIT_IS_BOT = "EXTRA_CALLKIT_IS_BOT"

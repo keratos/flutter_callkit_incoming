@@ -164,7 +164,13 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             // yet, so there is nothing to disconnect and this call would otherwise
             // be born RINGING with nobody left to kill it. Remember it as dead so
             // onCreateIncomingConnection refuses it (see CallkitConnection.deadCalls).
-            if (action != CallkitConstants.ACTION_CALL_ACCEPT) {
+            // ACCEPT et CONNECTED disent que l'appel VIT : les marquer morts
+            // ferait refuser la Connection encore en vol par
+            // onCreate*Connection, et l'appel n'aurait plus aucune existence
+            // système alors qu'il est en cours.
+            if (action != CallkitConstants.ACTION_CALL_ACCEPT &&
+                action != CallkitConstants.ACTION_CALL_CONNECTED
+            ) {
                 CallkitConnection.markDead(parsed.id)
                 Log.d(TAG, "no connection yet for ${parsed.id} — marked dead ($action)")
             }
@@ -175,6 +181,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             CallkitConstants.ACTION_CALL_DECLINE -> conn.markDeclined(context)
             CallkitConstants.ACTION_CALL_ENDED -> conn.markEnded()
             CallkitConstants.ACTION_CALL_TIMEOUT -> conn.markMissed()
+            CallkitConstants.ACTION_CALL_CONNECTED -> conn.markConnected()
         }
     }
 
@@ -257,7 +264,20 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     // clear notification and stop service
                     getCallkitNotificationManager()?.clearIncomingNotification(data, false)
                     CallkitNotificationService.stopService(context)
-                    sendEventFlutter(CallkitConstants.ACTION_CALL_ENDED, data)
+                    // Le drapeau vient de CallkitConnection.onDisconnect, seul
+                    // chemin invoqué par l'OS (voiture, kit, montre). Il permet
+                    // à Dart de raccrocher le SIP sur ce chemin SANS confondre
+                    // avec l'écho de son propre endCall, qui porte le même
+                    // ACTION_CALL_ENDED mais pas ce drapeau.
+                    val fromTelecom = intent.getBooleanExtra(
+                        CallkitConstants.EXTRA_CALLKIT_FROM_TELECOM,
+                        false,
+                    )
+                    sendEventFlutter(
+                        CallkitConstants.ACTION_CALL_ENDED,
+                        data,
+                        extras = mapOf("fromTelecom" to fromTelecom),
+                    )
                     removeCall(context, Data.fromBundle(data))
                 } catch (error: Exception) {
                     Log.e(TAG, null, error)
@@ -280,6 +300,12 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
 
             "${context.packageName}.${CallkitConstants.ACTION_CALL_CONNECTED}" -> {
                 try {
+                    // Passe la connexion Telecom de « en cours d'établissement »
+                    // à « active ». Cette branche ne faisait que la notification
+                    // et sendEventFlutter : l'appel sortant restait donc affiché
+                    // en train de composer pendant toute sa durée en voiture,
+                    // chrono à l'arrêt.
+                    driveTelecomConnection(context, data, CallkitConstants.ACTION_CALL_CONNECTED)
                     // update notification on going connected
                     getCallkitNotificationManager()?.showOngoingCallNotification(data, true)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_CONNECTED, data)
@@ -303,7 +329,16 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun sendEventFlutter(event: String, data: Bundle) {
+    /**
+     * [extras] : paires ajoutées telles quelles au corps envoyé à Dart, pour ce
+     * que le Bundle de l'appel ne porte pas — une information sur l'ORIGINE de
+     * l'action plutôt que sur l'appel lui-même (cf. `fromTelecom`).
+     */
+    private fun sendEventFlutter(
+        event: String,
+        data: Bundle,
+        extras: Map<String, Any?> = emptyMap(),
+    ) {
         if (silenceEvents) return
 
         val android = mapOf(
@@ -364,7 +399,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             "missedCallNotification" to missedCallNotification,
             "callingNotification" to callingNotification,
             "android" to android
-        )
+        ) + extras
         FlutterCallkitIncomingPlugin.sendEvent(event, forwardData)
     }
 }

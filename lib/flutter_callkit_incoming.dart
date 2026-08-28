@@ -295,7 +295,16 @@ class FlutterCallkitIncoming {
         if (callkitParams == null) {
           throw const FormatException('[ACTION_CALL_ENDED] id is null.');
         }
-        return CallEventActionCallEnded(callkitParams.id);
+        // Posé par CallkitConnection.onDisconnect (Android), seul chemin
+        // invoqué par l'OS. Absent partout ailleurs → false. Lecture
+        // défensive : ce corps vient aussi d'iOS, qui ne connaît pas ce champ.
+        final endedBody = data['body'];
+        final fromTelecom =
+            endedBody is Map && endedBody['fromTelecom'] == true;
+        return CallEventActionCallEnded(
+          callkitParams.id,
+          fromTelecom: fromTelecom,
+        );
       case CallEventConstants.actionCallTimeout:
         final callkitParams = toCallkitParams(data);
         if (callkitParams == null) {

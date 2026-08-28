@@ -109,7 +109,13 @@ class CallkitConnection(
     init {
         connectionProperties = PROPERTY_SELF_MANAGED
         audioModeIsVoip = true
-        connectionCapabilities = CAPABILITY_MUTE or CAPABILITY_SUPPORT_HOLD
+        // CAPABILITY_HOLD en plus de CAPABILITY_SUPPORT_HOLD : dans AOSP, un
+        // InCallService — ce qu'est le dialer d'Android Auto — n'active son
+        // bouton attente que sur CAPABILITY_HOLD ; SUPPORT_HOLD sert surtout à
+        // décider de l'afficher. Sans elle, [onHold]/[onUnhold] ne sont jamais
+        // invoqués et rien ne le signale : la voiture montre un bouton grisé,
+        // sans le moindre log côté app.
+        connectionCapabilities = CAPABILITY_MUTE or CAPABILITY_SUPPORT_HOLD or CAPABILITY_HOLD
         register(callId, this)
         Log.d(TAG, "Connection created id=$callId active=${activeCount()}")
     }
@@ -264,13 +270,26 @@ class CallkitConnection(
         )
     }
 
+    /**
+     * Raccroché demandé par le framework Telecom : bouton de l'écran voiture, du
+     * kit Bluetooth, de la montre, du dialer système.
+     *
+     * L'intent diffusé porte [CallkitConstants.EXTRA_CALLKIT_FROM_TELECOM].
+     * C'est la SEULE chose qui distingue, côté Dart, ce raccroché d'un
+     * ACTION_CALL_ENDED émis par l'app elle-même quand elle referme sa propre
+     * représentation Telecom (`endCall(id)` → `markEnded()`, qui ne passe jamais
+     * par ici). Sans ce drapeau, l'app ne pouvait pas raccrocher le SIP sur ce
+     * chemin sans risquer de tuer une autre ligne vivante sur l'écho de son
+     * propre endCall — la voiture détruisait donc la connexion Telecom en
+     * laissant l'appel SIP vivant, audio compris, et sans plus aucun bouton
+     * pour y mettre fin.
+     */
     override fun onDisconnect() {
         super.onDisconnect()
         Log.d(TAG, "onDisconnect id=$callId")
-        dispatchToPlugin(
-            CallkitIncomingBroadcastReceiver.getIntentEnded(appContext, bundle),
-            "onDisconnect",
-        )
+        val intent = CallkitIncomingBroadcastReceiver.getIntentEnded(appContext, bundle)
+            .putExtra(CallkitConstants.EXTRA_CALLKIT_FROM_TELECOM, true)
+        dispatchToPlugin(intent, "onDisconnect")
     }
 
     override fun onAbort() {
@@ -352,8 +371,24 @@ class CallkitConnection(
      * Sur API 34+, onCallAudioStateChanged (déprécié) et onMuteStateChanged
      * peuvent tous deux se déclencher pour une même action utilisateur. Sans
      * ce garde, l'app recevrait l'événement en double.
+     *
+     * Initialisé à `false`, PAS à `null` : l'état initial d'une connexion
+     * Telecom est toujours non-muet. Telecom appelle onCallAudioStateChanged à
+     * la création de la connexion ET à chaque changement de route audio
+     * (branchement Bluetooth, passage sous Android Auto en cours d'appel), le
+     * premier appel portant `isMuted=false`. Avec `null`, ce faux départ passait
+     * le garde et émettait un `setMuted(false)` : l'utilisateur qui avait coupé
+     * son micro dans l'app le voyait se rouvrir tout seul à la première
+     * variation audio, pendant que l'app affichait toujours « coupé ». Seul un
+     * vrai mute venu de la voiture passe désormais.
+     *
+     * @Volatile : les callbacks Telecom arrivent sur le thread principal, mais
+     * le fichier est précautionneux sur la concurrence partout ailleurs
+     * (ConcurrentHashMap, Collections.synchronizedSet) — on ne fait pas
+     * d'exception pour un champ lu et écrit depuis des callbacks système.
      */
-    private var lastMutedSent: Boolean? = null
+    @Volatile
+    private var lastMutedSent: Boolean? = false
 
     private fun emitToggleMute(isMuted: Boolean) {
         if (lastMutedSent == isMuted) return
@@ -457,6 +492,20 @@ class CallkitConnection(
         } catch (e: Exception) {
             Log.w(TAG, "[DIAG-DECLINE-CS] recovery failed: ${e.message}")
         }
+    }
+
+    /**
+     * L'appel sortant a été décroché en face : passer la connexion en « active ».
+     *
+     * Symétrique de [markAccepted] mais SANS sa logique d'acceptation : rien à
+     * neutraliser dans [dispatched] ici, personne n'a répondu à une sonnerie
+     * locale. Le spec promettait `setDialing()` puis `setActive()` ; seule la
+     * première moitié existait, si bien qu'un appel sortant restait affiché
+     * « en cours d'établissement » toute sa durée en voiture, chrono à l'arrêt.
+     */
+    fun markConnected() {
+        Log.d(TAG, "markConnected id=$callId")
+        setActive()
     }
 
     /** Mark the call as terminated — call ended (either side hung up). */
