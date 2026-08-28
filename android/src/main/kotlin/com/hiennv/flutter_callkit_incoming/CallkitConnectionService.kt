@@ -105,6 +105,19 @@ class CallkitConnectionService : ConnectionService() {
             return failed("Empty call id")
         }
 
+        // Même garde qu'à l'entrant, et la course y est PLUS probable : la ligne
+        // passe en `connecting` (donc `startCall` part) avant getUserMedia et
+        // avant l'INVITE. Un micro refusé ou un 404 immédiat la fait retomber à
+        // `idle` en quelques dizaines de ms, pendant que `placeCall` est encore
+        // en vol. Sans cette garde, la Connection naît juste après, plus
+        // personne pour la tuer : un fantôme garde le focus audio Telecom et
+        // détourne toutes les UI d'appel système (voiture, montre, kit), dont
+        // les boutons pilotent alors un appel qui n'existe plus.
+        if (CallkitConnection.consumeDead(callId)) {
+            Log.w(TAG, "onCreateOutgoingConnection id=$callId already ended — refusing")
+            return failed("Call already ended")
+        }
+
         Log.d(TAG, "onCreateOutgoingConnection id=$callId callee=${data.nameCaller}")
 
         val connection = CallkitConnection(callId, callBundle, applicationContext).apply {

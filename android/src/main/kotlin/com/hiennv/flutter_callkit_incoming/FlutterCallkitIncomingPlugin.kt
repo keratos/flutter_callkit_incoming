@@ -1,8 +1,10 @@
 package com.hiennv.flutter_callkit_incoming
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -11,6 +13,7 @@ import android.os.Looper
 import android.telecom.TelecomManager
 import android.util.Log
 import androidx.annotation.NonNull
+import androidx.core.content.ContextCompat
 import com.hiennv.flutter_callkit_incoming.Utils.Companion.reapCollection
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -223,6 +226,17 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
      */
     private fun placeTelecomCall(ctx: Context, data: Data) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        // Même pré-vérification que le chemin entrant
+        // (CallkitIncomingBroadcastReceiver.registerTelecomIncomingCall) : sans
+        // elle, une permission révoquée ne se lisait qu'en SecurityException
+        // attrapée plus bas, avec un message d'OEM peu exploitable au logcat —
+        // alors que c'est LA cause d'un écran voiture resté vide.
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.MANAGE_OWN_CALLS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "MANAGE_OWN_CALLS not granted — Telecom outgoing skipped id=${data.id}")
+            return
+        }
         try {
             val telecomManager = ctx.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
             val handle = data.handle.ifEmpty { data.id }
@@ -330,14 +344,16 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     result.success(true)
                 }
 
+                // Délègue au helper [startCall] plutôt que de rejouer son
+                // broadcast en ligne : c'est LUI qui enregistre l'appel sortant
+                // auprès de Telecom (placeTelecomCall). La duplication du seul
+                // broadcast laissait tout le volet « appel sortant en voiture »
+                // sans le moindre appelant — du code qui compilait
+                // parfaitement et ne s'exécutait jamais. Un seul broadcast est
+                // émis : le helper envoie déjà getIntentStart.
                 "startCall" -> {
                     val data = Data(call.arguments() ?: HashMap())
-                    context?.sendBroadcast(
-                        CallkitIncomingBroadcastReceiver.getIntentStart(
-                            requireNotNull(context),
-                            data.toBundle()
-                        )
-                    )
+                    startCall(data)
 
                     result.success(true)
                 }
@@ -414,6 +430,30 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                                 )
                             )
                         }
+                    } else if (context != null) {
+                        // Appel absent d'ACTIVE_CALLS : ne rien faire laissait
+                        // une entrée orpheline pour toujours. L'entrée n'est
+                        // écrite que par la branche ACTION_CALL_START du
+                        // receiver, donc par un broadcast ASYNCHRONE : sur un
+                        // appel sortant qui échoue tout de suite (micro refusé,
+                        // 404 immédiat), `endCall(id)` s'exécute avant cette
+                        // écriture, ne trouve rien, et aucun ENDED n'est jamais
+                        // diffusé — donc jamais de removeCall. L'entrée restait
+                        // en SharedPreferences avec isAccepted = true, et au
+                        // démarrage suivant le prochain appel entrant était
+                        // décroché tout seul.
+                        //
+                        // Diffuser ENDED quand même fait partir le nettoyage
+                        // quoi qu'il arrive : les broadcasts vers ce receiver
+                        // sont délivrés dans l'ordre d'émission, donc le START
+                        // encore en vol est traité d'abord, puis ce ENDED
+                        // supprime l'entrée qu'il vient d'écrire.
+                        context?.sendBroadcast(
+                            CallkitIncomingBroadcastReceiver.getIntentEnded(
+                                requireNotNull(context),
+                                data.toBundle()
+                            )
+                        )
                     }
                     result.success(true)
                 }
