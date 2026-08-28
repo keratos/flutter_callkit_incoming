@@ -3,10 +3,12 @@ package com.hiennv.flutter_callkit_incoming
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.telecom.TelecomManager
 import android.util.Log
 import androidx.annotation.NonNull
 import com.hiennv.flutter_callkit_incoming.Utils.Companion.reapCollection
@@ -201,12 +203,50 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
     }
 
     public fun startCall(data: Data) {
+        val ctx = requireNotNull(context)
         context?.sendBroadcast(
-            CallkitIncomingBroadcastReceiver.getIntentStart(
-                requireNotNull(context),
-                data.toBundle()
-            )
+            CallkitIncomingBroadcastReceiver.getIntentStart(ctx, data.toBundle())
         )
+        placeTelecomCall(ctx, data)
+    }
+
+    /**
+     * Enregistre l'appel sortant auprès du framework Telecom.
+     *
+     * Sans ça, un appel sortant n'a aucune existence système : les surfaces
+     * distantes (Android Auto, kit Bluetooth, montre) n'affichent rien pendant
+     * toute sa durée — pas même un bouton raccrocher. Le chemin entrant, lui,
+     * passait déjà par addNewIncomingCall.
+     *
+     * L'échec n'est jamais propagé : un appel SIP qui fonctionne ne doit pas
+     * être interrompu parce que sa représentation Telecom a échoué.
+     */
+    private fun placeTelecomCall(ctx: Context, data: Data) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        try {
+            val telecomManager = ctx.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+            val handle = data.handle.ifEmpty { data.id }
+            val callBundle = data.toBundle()
+            val extras = Bundle().apply {
+                putParcelable(
+                    TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE,
+                    InAppCallManager(ctx).getPhoneAccountHandle(),
+                )
+                putBundle(
+                    TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS,
+                    Bundle().apply {
+                        putBundle(CallkitConnection.EXTRA_CALL_BUNDLE, callBundle)
+                    },
+                )
+            }
+            telecomManager.placeCall(Uri.fromParts("tel", handle, null), extras)
+            Log.d(TAG, "placeCall dispatched id=${data.id}")
+        } catch (e: Exception) {
+            // SecurityException (MANAGE_OWN_CALLS révoquée), PhoneAccount non
+            // enregistré, OEM récalcitrant : l'appel SIP continue sans présence
+            // en voiture.
+            Log.w(TAG, "placeCall failed id=${data.id}: ${e.message}")
+        }
     }
 
     public fun endCall(data: Data) {

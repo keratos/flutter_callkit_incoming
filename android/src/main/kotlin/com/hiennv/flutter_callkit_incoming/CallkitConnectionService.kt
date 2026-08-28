@@ -139,6 +139,10 @@ class CallkitConnectionService : ConnectionService() {
             inner.getBundle(CallkitConnection.EXTRA_CALL_BUNDLE)?.let { return it }
             if (inner.containsKey("id")) return inner
         }
+        extras.getBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS)?.let { inner ->
+            inner.getBundle(CallkitConnection.EXTRA_CALL_BUNDLE)?.let { return it }
+            if (inner.containsKey("id")) return inner
+        }
         return if (extras.containsKey("id")) extras else null
     }
 
