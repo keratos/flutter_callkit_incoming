@@ -255,11 +255,7 @@ class CallkitNotificationManager(
                 }
                 var avatarUrl = data.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
                 if (!avatarUrl.isNullOrEmpty()) {
-                    if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith(
-                            "https://",
-                            true
-                        )
-                    ) {
+                    if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true) && !avatarUrl.startsWith("file://", true)) {
                         avatarUrl =
                             String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
                     }
@@ -308,11 +304,7 @@ class CallkitNotificationManager(
             )
             var avatarUrl = data.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
             if (!avatarUrl.isNullOrEmpty()) {
-                if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith(
-                        "https://",
-                        true
-                    )
-                ) {
+                if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true) && !avatarUrl.startsWith("file://", true)) {
                     avatarUrl = String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
                 }
                 val headers =
@@ -392,7 +384,7 @@ class CallkitNotificationManager(
         )
         var avatarUrl = data.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
         if (!avatarUrl.isNullOrEmpty()) {
-            if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true)) {
+            if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true) && !avatarUrl.startsWith("file://", true)) {
                 avatarUrl = String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
             }
             val headers =
@@ -503,11 +495,7 @@ class CallkitNotificationManager(
 
             var avatarUrl = data.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
             if (!avatarUrl.isNullOrEmpty()) {
-                if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith(
-                        "https://",
-                        true
-                    )
-                ) {
+                if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true) && !avatarUrl.startsWith("file://", true)) {
                     avatarUrl = String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
                 }
                 val headers =
@@ -538,11 +526,7 @@ class CallkitNotificationManager(
             )
             var avatarUrl = data.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
             if (!avatarUrl.isNullOrEmpty()) {
-                if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith(
-                        "https://",
-                        true
-                    )
-                ) {
+                if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true) && !avatarUrl.startsWith("file://", true)) {
                     avatarUrl = String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
                 }
                 val headers =
@@ -669,11 +653,7 @@ class CallkitNotificationManager(
                 }
                 var avatarUrl = data.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
                 if (!avatarUrl.isNullOrEmpty()) {
-                    if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith(
-                            "https://",
-                            true
-                        )
-                    ) {
+                    if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true) && !avatarUrl.startsWith("file://", true)) {
                         avatarUrl =
                             String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
                     }
@@ -734,11 +714,7 @@ class CallkitNotificationManager(
 
                 var avatarUrl = data.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
                 if (!avatarUrl.isNullOrEmpty()) {
-                    if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith(
-                            "https://",
-                            true
-                        )
-                    ) {
+                    if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true) && !avatarUrl.startsWith("file://", true)) {
                         avatarUrl =
                             String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
                     }
@@ -773,11 +749,7 @@ class CallkitNotificationManager(
             )
             var avatarUrl = data.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
             if (!avatarUrl.isNullOrEmpty()) {
-                if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith(
-                        "https://",
-                        true
-                    )
-                ) {
+                if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true) && !avatarUrl.startsWith("file://", true)) {
                     avatarUrl = String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
                 }
                 val headers =
