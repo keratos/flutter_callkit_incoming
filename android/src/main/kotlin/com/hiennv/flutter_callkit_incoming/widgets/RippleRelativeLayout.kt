@@ -89,19 +89,16 @@ class RippleRelativeLayout : RelativeLayout {
             val scaleXAnimator = ObjectAnimator.ofFloat(rippleView, "ScaleX", 1.0f, rippleScale)
             scaleXAnimator.repeatCount = ObjectAnimator.INFINITE
             scaleXAnimator.repeatMode = ObjectAnimator.RESTART
-            scaleXAnimator.startDelay = (i * rippleDelay).toLong()
             scaleXAnimator.duration = rippleDurationTime.toLong()
             animatorList!!.add(scaleXAnimator)
             val scaleYAnimator = ObjectAnimator.ofFloat(rippleView, "ScaleY", 1.0f, rippleScale)
             scaleYAnimator.repeatCount = ObjectAnimator.INFINITE
             scaleYAnimator.repeatMode = ObjectAnimator.RESTART
-            scaleYAnimator.startDelay = (i * rippleDelay).toLong()
             scaleYAnimator.duration = rippleDurationTime.toLong()
             animatorList!!.add(scaleYAnimator)
             val alphaAnimator = ObjectAnimator.ofFloat(rippleView, "Alpha", 1.0f, 0f)
             alphaAnimator.repeatCount = ObjectAnimator.INFINITE
             alphaAnimator.repeatMode = ObjectAnimator.RESTART
-            alphaAnimator.startDelay = (i * rippleDelay).toLong()
             alphaAnimator.duration = rippleDurationTime.toLong()
             animatorList!!.add(alphaAnimator)
         }
@@ -125,14 +122,27 @@ class RippleRelativeLayout : RelativeLayout {
             for (rippleView in rippleViewList) {
                 rippleView.visibility = VISIBLE
             }
-            animatorSet!!.start()
+            // [breizh-voip] Halo complet dès la première image. Avant, le i-ème
+            // anneau ne partait qu'après i × (durée / nombre) : à l'ouverture
+            // de l'écran, un seul anneau minuscule, et le motif entier ~5 s plus
+            // tard (6 s / 5 anneaux). Chaque anneau est désormais lancé tout de
+            // suite, déjà avancé à sa phase — le régime établi, immédiatement.
+            // Les animateurs sont démarrés un à un, pas via l'AnimatorSet : le
+            // set recalcule le temps de ses enfants à chaque image et écraserait
+            // la phase posée. (3 animateurs par anneau : ScaleX, ScaleY, Alpha.)
+            animatorList?.forEachIndexed { index, animator ->
+                val anneau = index / 3
+                val phase = ((rippleAmount - 1 - anneau) * rippleDelay).toLong()
+                animator.start()
+                (animator as? ObjectAnimator)?.currentPlayTime = phase
+            }
             isRippleAnimationRunning = true
         }
     }
 
     fun stopRippleAnimation() {
         if (isRippleAnimationRunning) {
-            animatorSet!!.end()
+            animatorList?.forEach { it.end() }
             isRippleAnimationRunning = false
         }
     }
