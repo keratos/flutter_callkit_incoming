@@ -386,6 +386,33 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     result.success(true)
                 }
 
+                // Rename a call that is ALREADY connected.
+                //
+                // Telecom pushes `setCallerDisplayName` to every InCallService, so
+                // Android Auto, a Bluetooth car kit or a watch follow along. Needed
+                // when the far end turns out to be someone else than the number that
+                // was dialled: a pickup (*8xxx), a transfer, a park retrieval. Without
+                // it the car keeps showing "*8101" for the whole conversation.
+                //
+                // Silently ignored when no live Connection carries that id: the call
+                // may have ended, or Telecom may have refused it (permissions, OEM).
+                "updateCallerName" -> {
+                    val args = call.arguments
+                    val map = if (args is Map<*, *>) args else emptyMap<String, Any>()
+                    val id = map["id"]?.toString().orEmpty()
+                    val name = map["nameCaller"]?.toString().orEmpty()
+                    val connection = if (id.isEmpty()) null else CallkitConnection.find(id)
+                    if (connection != null && name.isNotEmpty()) {
+                        connection.setCallerDisplayName(
+                            name,
+                            TelecomManager.PRESENTATION_ALLOWED,
+                        )
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
+
                 // Accept a call programmatically, exactly as tapping "Accept" on the
                 // plugin's own notification does. Callable from a background Dart
                 // isolate — needed by companion surfaces (a paired watch's own

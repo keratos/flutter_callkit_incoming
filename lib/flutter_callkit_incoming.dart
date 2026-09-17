@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -151,6 +152,25 @@ class FlutterCallkitIncoming {
   /// Get Callkit Mic Status (muted/unmuted).
   /// On iOS, using Callkit(update call ui).
   /// On Android, Nothing(only callback event listener).
+  /// Renomme un appel DÉJÀ en cours, sur les surfaces Telecom.
+  ///
+  /// Android Auto, un kit Bluetooth ou une montre affichent le nom donné au
+  /// démarrage de l'appel. Quand le correspondant réel se révèle différent du
+  /// numéro composé — interception `*8xxx`, transfert, reprise de parking — ce
+  /// nom devient faux pour toute la communication.
+  ///
+  /// Renvoie `false` si aucune connexion vivante ne porte cet identifiant :
+  /// l'appel est terminé, ou Telecom n'en a jamais créé (permissions, OEM).
+  /// Sans effet sur iOS, dont CallKit ne permet pas de renommer un appel établi.
+  static Future<bool> updateCallerName(String id, String nameCaller) async {
+    if (!Platform.isAndroid) return false;
+    final result = await _channel.invokeMethod<bool>(
+      'updateCallerName',
+      {'id': id, 'nameCaller': nameCaller},
+    );
+    return result ?? false;
+  }
+
   static Future<bool> isMuted(String id) async {
     return (await _channel.invokeMethod("isMuted", {'id': id})) as bool? ??
         false;
