@@ -27,6 +27,9 @@ object CallkitConstants {
     const val ACTION_CALL_HELD = "com.hiennv.flutter_callkit_incoming.ACTION_CALL_HELD"
     const val ACTION_CALL_UNHELD = "com.hiennv.flutter_callkit_incoming.ACTION_CALL_UNHELD"
     const val ACTION_CALL_CONNECTED = "com.hiennv.flutter_callkit_incoming.ACTION_CALL_CONNECTED"
+    /** Route audio courante et routes disponibles d'une connexion Telecom. */
+    const val ACTION_CALL_AUDIO_ROUTE =
+        "com.hiennv.flutter_callkit_incoming.ACTION_CALL_AUDIO_ROUTE"
 
 
     const val EXTRA_CALLKIT_INCOMING_DATA = "EXTRA_CALLKIT_INCOMING_DATA"

@@ -6,7 +6,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.OutcomeReceiver
+import android.os.SystemClock
 import android.telecom.CallAudioState
+import android.telecom.CallEndpoint
+import android.telecom.CallEndpointException
 import android.telecom.Connection
 import android.telecom.DisconnectCause
 import android.util.Log
@@ -104,6 +108,16 @@ class CallkitConnection(
 
         /** True if [callId] died during the race window. Consumes the marker. */
         fun consumeDead(callId: String): Boolean = deadCalls.remove(callId)
+
+        /**
+         * Délai entre [setActive] et l'application d'une route demandée plus tôt.
+         *
+         * Au passage à l'état actif, Telecom réapplique sa route de base
+         * (Bluetooth s'il est connecté, sinon casque, sinon écouteur), de façon
+         * asynchrone, dans son propre processus. Une route posée avant que cette
+         * bascule ne soit faite est écrasée : il faut passer après.
+         */
+        private const val ROUTE_SETTLE_MS = 400L
     }
 
     init {
@@ -243,7 +257,7 @@ class CallkitConnection(
 
     private fun fallback(what: String) {
         when (what) {
-            "onAnswer" -> setActive()
+            "onAnswer" -> activate()
             "onReject" -> finishWithCause(DisconnectCause.REJECTED)
             else -> finishWithCause(DisconnectCause.LOCAL)
         }
@@ -340,6 +354,14 @@ class CallkitConnection(
         super.onCallAudioStateChanged(state)
         if (state == null) return
         emitToggleMute(state.isMuted)
+        // Sur 14+, la route remonte par onCallEndpointChanged : ne pas la
+        // publier deux fois, avec des noms qui pourraient diverger.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            publishRoute(
+                CallkitAudioRoute.fromAudioStateRoute(state.route),
+                CallkitAudioRoute.fromAudioStateMask(state.supportedRouteMask),
+            )
+        }
     }
 
     /** Mute demandé depuis une surface distante (API 34+). */
@@ -408,6 +430,184 @@ class CallkitConnection(
     }
 
     // -------------------------------------------------------------------------
+    // Route audio : écouteur, haut-parleur, Bluetooth.
+    //
+    // Tant que cette connexion vit, c'est Telecom qui possède le routage audio
+    // de l'appel, pas l'app. Ce qui est posé directement sur AudioManager
+    // (setSpeakerphoneOn, setCommunicationDevice : ce que font flutter_webrtc et
+    // AudioSwitch) est ignoré ou écrasé — sur Android 16, Telecom réapplique sa
+    // route à chaque changement de focus de l'appel. Symptôme : les boutons
+    // haut-parleur et Bluetooth de l'app s'allumaient sans que le son ne bouge.
+    //
+    // La route se demande donc ici, à Telecom : requestCallEndpointChange sur
+    // Android 14+, setAudioRoute en dessous. La route réelle remonte à Dart
+    // (ACTION_CALL_AUDIO_ROUTE) pour que l'app affiche ce qui est vraiment
+    // actif, y compris quand c'est la voiture ou le casque qui en change.
+    // -------------------------------------------------------------------------
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Sorties proposées par Telecom pour cet appel (Android 14+). */
+    @Volatile
+    private var endpoints: List<CallEndpoint> = emptyList()
+
+    @Volatile
+    private var currentRoute: String? = null
+
+    @Volatile
+    private var availableRoutes: List<String> = emptyList()
+
+    /** Dernier état publié vers Dart, pour ne pas répéter un état inchangé. */
+    @Volatile
+    private var lastPublishedRoute: Pair<String?, List<String>>? = null
+
+    /** Route demandée avant que l'appel ne soit actif, rejouée après [activate]. */
+    @Volatile
+    private var pendingRoute: String? = null
+
+    /** Instant ([SystemClock.elapsedRealtime]) du dernier [activate]. */
+    @Volatile
+    private var activatedAt = 0L
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    override fun onAvailableCallEndpointsChanged(availableEndpoints: List<CallEndpoint>) {
+        super.onAvailableCallEndpointsChanged(availableEndpoints)
+        endpoints = availableEndpoints.toList()
+        publishRoute(
+            currentRoute,
+            availableEndpoints
+                .mapNotNull { CallkitAudioRoute.fromEndpointType(it.endpointType) }
+                .distinct(),
+        )
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    override fun onCallEndpointChanged(callEndpoint: CallEndpoint) {
+        super.onCallEndpointChanged(callEndpoint)
+        publishRoute(CallkitAudioRoute.fromEndpointType(callEndpoint.endpointType), availableRoutes)
+    }
+
+    private fun publishRoute(route: String?, available: List<String>) {
+        currentRoute = route
+        availableRoutes = available
+        // Telecom rebascule encore l'audio pendant qu'il retire l'appel : ces
+        // routes-là ne concernent plus personne, et l'app les garderait pour
+        // l'appel suivant.
+        if (state == STATE_DISCONNECTED) return
+        val snapshot = route to available
+        if (snapshot == lastPublishedRoute) return
+        lastPublishedRoute = snapshot
+        Log.d(TAG, "audioRoute id=$callId route=$route available=$available")
+        FlutterCallkitIncomingPlugin.sendEvent(
+            CallkitConstants.ACTION_CALL_AUDIO_ROUTE,
+            mapOf("id" to callId, "route" to route, "available" to available),
+        )
+    }
+
+    /** Route courante et routes disponibles, pour qui arrive après les événements. */
+    fun audioRouteSnapshot(): Map<String, Any?> =
+        mapOf("route" to currentRoute, "available" to availableRoutes)
+
+    /**
+     * Demande à Telecom de router l'audio de l'appel vers [route] (un des noms
+     * de [CallkitAudioRoute]).
+     *
+     * Avant que l'appel ne soit actif, la demande est mémorisée et rejouée
+     * après [activate] : Telecom réapplique sa route de base au passage à
+     * l'état actif et écraserait une route posée plus tôt. En numérotation,
+     * elle est aussi appliquée tout de suite, pour la tonalité de retour.
+     *
+     * @return false si l'appel est terminé ou si la route n'est pas disponible.
+     */
+    fun requestRoute(route: String): Boolean {
+        Log.d(TAG, "requestRoute id=$callId route=$route state=$state")
+        return when (state) {
+            STATE_DISCONNECTED -> false
+            STATE_ACTIVE, STATE_HOLDING -> {
+                val wait = activatedAt + ROUTE_SETTLE_MS - SystemClock.elapsedRealtime()
+                if (wait <= 0) {
+                    applyRoute(route)
+                } else {
+                    pendingRoute = route
+                    mainHandler.postDelayed({ applyPendingRoute() }, wait)
+                    true
+                }
+            }
+            STATE_DIALING -> {
+                pendingRoute = route
+                applyRoute(route)
+            }
+            else -> {
+                pendingRoute = route
+                true
+            }
+        }
+    }
+
+    private fun applyPendingRoute() {
+        val route = pendingRoute ?: return
+        pendingRoute = null
+        if (state == STATE_DISCONNECTED) return
+        applyRoute(route)
+    }
+
+    private fun applyRoute(route: String): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            return applyEndpoint(route)
+        }
+        @Suppress("DEPRECATION")
+        val supported = callAudioState?.supportedRouteMask
+        for (name in CallkitAudioRoute.candidates(route)) {
+            val mask = CallkitAudioRoute.toAudioStateRoute(name) ?: continue
+            if (supported != null && supported and mask == 0) continue
+            Log.d(TAG, "setAudioRoute id=$callId route=$name")
+            @Suppress("DEPRECATION")
+            setAudioRoute(mask)
+            return true
+        }
+        Log.w(TAG, "route $route indisponible id=$callId (proposées : $availableRoutes)")
+        return false
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun applyEndpoint(route: String): Boolean {
+        var target: CallEndpoint? = null
+        for (name in CallkitAudioRoute.candidates(route)) {
+            target = endpoints.firstOrNull {
+                CallkitAudioRoute.fromEndpointType(it.endpointType) == name
+            }
+            if (target != null) break
+        }
+        if (target == null) {
+            Log.w(TAG, "route $route indisponible id=$callId (proposées : $availableRoutes)")
+            return false
+        }
+        requestCallEndpointChange(
+            target,
+            appContext.mainExecutor,
+            object : OutcomeReceiver<Void, CallEndpointException> {
+                override fun onResult(result: Void?) {
+                    Log.d(TAG, "route $route appliquée id=$callId")
+                }
+
+                override fun onError(error: CallEndpointException) {
+                    Log.w(TAG, "route $route refusée id=$callId code=${error.code}")
+                }
+            },
+        )
+        return true
+    }
+
+    /** [setActive], puis rejoue la route demandée pendant la sonnerie. */
+    private fun activate() {
+        setActive()
+        activatedAt = SystemClock.elapsedRealtime()
+        if (pendingRoute != null) {
+            mainHandler.postDelayed({ applyPendingRoute() }, ROUTE_SETTLE_MS)
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // App → Telecom driving helpers (invoked by the plugin's BroadcastReceiver)
     // -------------------------------------------------------------------------
 
@@ -417,7 +617,7 @@ class CallkitConnection(
         // Already accepted app-side: an OS-level answer arriving afterwards must
         // not re-enter the broadcast pipeline (see [dispatched]).
         dispatched.add("onAnswer")
-        setActive()
+        activate()
     }
 
     /**
@@ -505,7 +705,11 @@ class CallkitConnection(
      */
     fun markConnected() {
         Log.d(TAG, "markConnected id=$callId")
-        setActive()
+        // Appel entrant déjà accepté depuis CallKit : il est actif depuis
+        // [markAccepted]. Le réactiver ferait réappliquer à Telecom sa route de
+        // base, par-dessus le haut-parleur que l'app vient de demander.
+        if (state == STATE_ACTIVE) return
+        activate()
     }
 
     /** Mark the call as terminated — call ended (either side hung up). */

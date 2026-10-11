@@ -1,4 +1,5 @@
 import 'package:flutter_callkit_incoming/entities/android_params.dart';
+import 'package:flutter_callkit_incoming/entities/call_audio_route.dart';
 import 'package:flutter_callkit_incoming/entities/call_kit_params.dart';
 
 /// Event name constants for external reference
@@ -33,6 +34,8 @@ abstract class CallEventConstants {
       'com.hiennv.flutter_callkit_incoming.ACTION_CALL_TOGGLE_AUDIO_SESSION';
   static const String actionCallCustom =
       'com.hiennv.flutter_callkit_incoming.ACTION_CALL_CUSTOM';
+  static const String actionCallAudioRoute =
+      'com.hiennv.flutter_callkit_incoming.ACTION_CALL_AUDIO_ROUTE';
 }
 
 /// Base sealed class for CallEvent
@@ -229,6 +232,25 @@ class CallEventActionCallToggleAudioSession extends CallEvent {
   @override
   String toString() =>
       'CallEventActionCallToggleAudioSession(isActive: $isActive)';
+}
+
+/// Android uniquement. La route audio d'un appel a changé, ou les routes
+/// disponibles (Bluetooth connecté ou perdu, casque branché).
+///
+/// Émis par la connexion Telecom, qui possède le routage : c'est la route
+/// réellement active, quelle que soit la surface qui l'a choisie (l'app, la
+/// voiture, le kit Bluetooth).
+class CallEventActionCallAudioRoute extends CallEvent {
+  const CallEventActionCallAudioRoute(this.id, this.state);
+
+  @override
+  String get eventName => CallEventConstants.actionCallAudioRoute;
+
+  final String id;
+  final CallAudioRouteState state;
+
+  @override
+  String toString() => 'CallEventActionCallAudioRoute(id: $id, state: $state)';
 }
 
 class CallEventActionCallCustom extends CallEvent {

@@ -569,8 +569,32 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     result.success(true)
                 }
 
+                // Route audio d'un appel : écouteur, haut-parleur, Bluetooth.
+                //
+                // Passe par la connexion Telecom, seule à pouvoir la changer tant
+                // qu'elle vit (voir CallkitConnection). false quand aucune
+                // connexion ne porte cet id, ou que la route n'est pas proposée :
+                // l'app retombe alors sur son propre routage.
                 "setAudioRoute" -> {
-                    result.success(true)
+                    val args = call.arguments
+                    val map = if (args is Map<*, *>) args else emptyMap<String, Any>()
+                    val id = map["id"]?.toString().orEmpty()
+                    val route = map["route"]?.toString().orEmpty()
+                    val connection = if (id.isEmpty()) null else CallkitConnection.find(id)
+                    result.success(
+                        connection != null && route.isNotEmpty() && connection.requestRoute(route)
+                    )
+                }
+
+                // Route courante et routes disponibles d'un appel, null sans
+                // connexion Telecom. Pour se resynchroniser après coup : les
+                // événements ACTION_CALL_AUDIO_ROUTE ne sont pas rejoués.
+                "getAudioRoute" -> {
+                    val args = call.arguments
+                    val map = if (args is Map<*, *>) args else emptyMap<String, Any>()
+                    val id = map["id"]?.toString().orEmpty()
+                    val connection = if (id.isEmpty()) null else CallkitConnection.find(id)
+                    result.success(connection?.audioRouteSnapshot())
                 }
             }
         } catch (error: Exception) {

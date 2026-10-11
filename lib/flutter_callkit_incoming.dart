@@ -171,6 +171,37 @@ class FlutterCallkitIncoming {
     return result ?? false;
   }
 
+  /// Oriente l'audio d'un appel vers [route] (Android).
+  ///
+  /// Tant qu'un appel a sa connexion Telecom, c'est elle qui décide de la
+  /// sortie audio : un `setSpeakerphoneOn` posé directement sur le système
+  /// est ignoré ou écrasé. La demande passe donc par elle. Faite avant que
+  /// l'appel ne soit actif, elle est appliquée à son passage en actif.
+  ///
+  /// Renvoie `false` si aucune connexion ne porte cet identifiant, si la
+  /// route n'est pas disponible, ou hors Android : à l'appelant de retomber
+  /// sur son propre routage. La route effective arrive ensuite par
+  /// [CallEventActionCallAudioRoute].
+  static Future<bool> setAudioRoute(String id, CallAudioRoute route) async {
+    if (!Platform.isAndroid) return false;
+    final result = await _channel.invokeMethod<bool>(
+      'setAudioRoute',
+      {'id': id, 'route': route.name},
+    );
+    return result ?? false;
+  }
+
+  /// Route audio courante et routes disponibles d'un appel (Android), null
+  /// sans connexion Telecom pour cet identifiant.
+  static Future<CallAudioRouteState?> getAudioRoute(String id) async {
+    if (!Platform.isAndroid) return null;
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'getAudioRoute',
+      {'id': id},
+    );
+    return result == null ? null : CallAudioRouteState.fromMap(result);
+  }
+
   static Future<bool> isMuted(String id) async {
     return (await _channel.invokeMethod("isMuted", {'id': id})) as bool? ??
         false;
@@ -403,6 +434,16 @@ class FlutterCallkitIncoming {
               '[ACTION_CALL_TOGGLE_AUDIO_SESSION] id is null.');
         }
         return CallEventActionCallToggleAudioSession(isActive);
+      case CallEventConstants.actionCallAudioRoute:
+        final body = data['body'] as Map<Object?, Object?>?;
+        final id = body?['id'] as String?;
+        if (body == null || id == null) {
+          throw const FormatException('[ACTION_CALL_AUDIO_ROUTE] id is null.');
+        }
+        return CallEventActionCallAudioRoute(
+          id,
+          CallAudioRouteState.fromMap(body),
+        );
       case CallEventConstants.actionCallCustom:
         final body = data['body'] as Map<String, dynamic>?;
         if (body == null) {
