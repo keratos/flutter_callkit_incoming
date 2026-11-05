@@ -306,6 +306,15 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     // en train de composer pendant toute sa durée en voiture,
                     // chrono à l'arrêt.
                     driveTelecomConnection(context, data, CallkitConstants.ACTION_CALL_CONNECTED)
+                    // Un appel en communication est un appel accepté. Un appel
+                    // entrant décroché dans l'app (et non depuis cet écran) n'était
+                    // jamais marqué : à sa fin, endCall(id) le prenait pour un refus
+                    // de sonnerie et diffusait DECLINE au lieu d'ENDED. markDeclined
+                    // gardait alors la connexion 3 s de plus (voiture et kit
+                    // Bluetooth affichaient encore l'appel) et ramenait l'app au
+                    // premier plan, par-dessus le GPS. Écrit avant l'événement Dart,
+                    // pour que activeCalls() le voie déjà.
+                    addCall(context, Data.fromBundle(data), true)
                     // update notification on going connected
                     getCallkitNotificationManager()?.showOngoingCallNotification(data, true)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_CONNECTED, data)
