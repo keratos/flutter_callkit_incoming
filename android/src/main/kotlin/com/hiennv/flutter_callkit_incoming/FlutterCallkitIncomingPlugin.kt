@@ -207,6 +207,12 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
 
     public fun startCall(data: Data) {
         val ctx = requireNotNull(context)
+        // L'identifiant d'un appel sortant est celui de sa ligne, réutilisé d'un
+        // appel à l'autre : la marque laissée par la fin du précédent ne doit pas
+        // faire refuser celui-ci (cf. CallkitConnection.forgetDead).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            CallkitConnection.forgetDead(data.id)
+        }
         context?.sendBroadcast(
             CallkitIncomingBroadcastReceiver.getIntentStart(ctx, data.toBundle())
         )

@@ -18,6 +18,7 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        test.java.srcDirs += 'src/test/kotlin'
     }
 
     compileOptions {
@@ -40,4 +41,6 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.11.1'
     //noinspection GradleDependency
     implementation "io.coil-kt:coil:1.4.0"
+
+    testImplementation 'junit:junit:4.13.2'
 }

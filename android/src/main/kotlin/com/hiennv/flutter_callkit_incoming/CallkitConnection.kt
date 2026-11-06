@@ -110,6 +110,26 @@ class CallkitConnection(
         fun consumeDead(callId: String): Boolean = deadCalls.remove(callId)
 
         /**
+         * Un nouvel appel démarre sous [callId] : oublie la marque d'un appel
+         * précédent qui portait le même identifiant.
+         *
+         * L'appli identifie un appel sortant par sa ligne (« line-1 »), donc deux
+         * appels successifs partagent l'identifiant. À la fin d'un appel normal,
+         * Telecom a déjà détruit la Connection quand ACTION_CALL_ENDED arrive : le
+         * receiver ne la trouve plus et la marque morte. Cette marque périmée
+         * faisait refuser la Connection de l'appel suivant (« Call already ended »),
+         * qui n'avait alors aucune existence système (voiture, Bluetooth, montre,
+         * focus audio) alors que le SIP passait. Seul le premier appel sortant
+         * d'un processus était déclaré à Telecom.
+         *
+         * Appelé avant placeCall : une fin reçue ENSUITE marque toujours l'appel,
+         * la course couverte par [consumeDead] reste donc protégée.
+         */
+        fun forgetDead(callId: String) {
+            deadCalls.remove(callId)
+        }
+
+        /**
          * Délai entre [setActive] et l'application d'une route demandée plus tôt.
          *
          * Au passage à l'état actif, Telecom réapplique sa route de base
